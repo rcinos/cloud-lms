@@ -1,0 +1,105 @@
+# azure-pipelines.yml
+# This pipeline defines the Continuous Integration/Continuous Deployment (CI/CD) process
+# for the Course Service, demonstrating how to build, test, and deploy a microservice
+# to Azure Kubernetes Service (AKS).
+# You would create similar pipelines for the User and Progress services.
+
+trigger:
+  branches:
+    include:
+      - main # Trigger the pipeline on pushes to the 'main' branch
+  paths:
+    include:
+      - course-service/* # Only trigger if changes are made in the course-service directory
+
+variables:
+  # Azure Container Registry (ACR) details
+  acrServiceConnection: 'your-acr-service-connection' # Replace with your Azure DevOps service connection name to ACR
+  acrName: 'youracrname' # Replace with your Azure Container Registry name
+  imageRepository: 'course-service' # Name of the Docker image repository
+  dockerfilePath: 'course-service/Dockerfile' # Path to the Dockerfile for the Course Service
+  tag: '$(Build.BuildId)' # Tag the Docker image with the build ID
+
+  # Azure Kubernetes Service (AKS) details
+  aksServiceConnection: 'your-aks-service-connection' # Replace with your Azure DevOps service connection name to AKS
+  kubernetesCluster: 'your-aks-cluster-name' # Replace with your AKS cluster name
+  kubernetesNamespace: 'default' # Kubernetes namespace for deployment
+
+  # Agent pool to use for the pipeline
+  vmImageName: 'ubuntu-latest'
+
+stages:
+- stage: Build
+  displayName: Build and Push Docker Image
+  jobs:
+  - job: BuildAndPush
+    displayName: Build and Push Course Service Image
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+    - task: Docker@2
+      displayName: Build and Push Image
+      inputs:
+        containerRegistry: $(acrServiceConnection)
+        repository: $(imageRepository)
+        command: 'buildAndPush'
+        Dockerfile: $(dockerfilePath)
+        tags: |
+          $(tag)
+          latest # Also push a 'latest' tag for convenience
+
+- stage: Test
+  displayName: Run Unit Tests
+  jobs:
+  - job: RunTests
+    displayName: Run Course Service Unit Tests
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+    - checkout: self # Checkout the repository
+      path: s/$(Build.Repository.Name) # Checkout into a specific path
+
+    - script: |
+        python3 -m venv venv
+        source venv/bin/activate
+        pip install -r course-service/requirements.txt
+        pytest course-service/tests/ --cov=course-service/app --cov-report=xml # Run tests with coverage
+      displayName: 'Install Dependencies and Run Tests'
+      workingDirectory: '$(Build.SourcesDirectory)' # Set working directory to the root of the repo
+
+    - task: PublishCodeCoverageResults@1
+      displayName: 'Publish Code Coverage Results'
+      inputs:
+        codeCoverageTool: 'Cobertura'
+        summaryFileLocation: '$(Build.SourcesDirectory)/coverage.xml' # Path to the coverage report
+
+- stage: Deploy
+  displayName: Deploy to AKS
+  jobs:
+  - job: DeployToAKS
+    displayName: Deploy Course Service to AKS
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+    - task: KubernetesManifest@1
+      displayName: Deploy to Kubernetes
+      inputs:
+        action: 'deploy'
+        kubernetesServiceConnection: $(aksServiceConnection)
+        namespace: $(kubernetesNamespace)
+        manifests: |
+          $(Build.SourcesDirectory)/infrastructure/kubernetes/course-service-deployment.yaml # Path to your Kubernetes deployment manifest
+        # You would typically replace image with the specific tag from the build stage
+        # For simplicity, we'll use latest here, but in production, use the $(tag)
+        containers: |
+          $(acrName).azurecr.io/$(imageRepository):latest # Use the image from ACR
+
+    # Optional: Add a task to update ingress or apply other Kubernetes configurations
+    # - task: Kubernetes@1
+    #   displayName: 'Apply Ingress'
+    #   inputs:
+    #     connectionType: 'Kubernetes Service Connection'
+    #     kubernetesServiceConnection: $(aksServiceConnection)
+    #     namespace: $(kubernetesNamespace)
+    #     command: 'apply'
+    #     arguments: '-f $(Build.SourcesDirectory)/infrastructure/kubernetes/ingress.yaml'

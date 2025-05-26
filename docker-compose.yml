@@ -1,0 +1,48 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  course-service:
+    build: ./course-service
+    ports:
+      - "5001:5001"
+    environment:
+      DATABASE_URL: ${DATABASE_URL_COURSE}
+      REDIS_URL: redis://redis:6379
+      SERVICE_BUS_CONNECTION: ${SERVICE_BUS_CONNECTION}
+      AZURE_STORAGE_CONNECTION: ${AZURE_STORAGE_CONNECTION}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+    depends_on:
+      - redis
+
+  user-service:
+    build: ./user-service
+    ports:
+      - "5002:5002"
+    environment:
+      DATABASE_URL: ${DATABASE_URL_USER}
+      REDIS_URL: redis://redis:6379
+      SERVICE_BUS_CONNECTION: ${SERVICE_BUS_CONNECTION}
+      AZURE_STORAGE_CONNECTION: ${AZURE_STORAGE_CONNECTION}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+    depends_on:
+      - redis
+
+  progress-service:
+    build: ./progress-service
+    ports:
+      - "5003:5003"
+    environment:
+      DATABASE_URL: ${DATABASE_URL_PROGRESS}
+      REDIS_URL: redis://redis:6379
+      SERVICE_BUS_CONNECTION: ${SERVICE_BUS_CONNECTION}
+      AZURE_STORAGE_CONNECTION: ${AZURE_STORAGE_CONNECTION}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+    depends_on:
+      - redis

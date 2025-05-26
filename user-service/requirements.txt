@@ -1,0 +1,21 @@
+# user-service/requirements.txt
+# Python dependencies required for the User Service.
+
+Flask==3.0.0
+Flask-SQLAlchemy==3.1.1
+Flask-Migrate==4.0.5
+Flask-Caching==2.1.0
+pyodbc==5.0.1 # NEW: Driver for SQL Server
+cryptography==41.0.7 # For Fernet encryption
+python-dotenv==1.0.0 # For loading .env files locally
+azure-storage-blob==12.19.0 # For Azure Blob Storage logging
+azure-servicebus==7.11.4 # For Azure Service Bus message queuing
+prometheus-client==0.19.0 # For metrics (though not fully implemented in this code)
+structlog==23.2.0 # For structured logging
+pytest==7.4.3 # For testing
+pytest-cov==4.1.0 # For test coverage
+requests==2.31.0 # For making HTTP requests (e.g., to other services, though not explicitly used here)
+gunicorn==21.2.0 # Production WSGI server
+redis==5.0.1 # Redis client for caching
+bcrypt==4.1.2 # For password hashing
+PyJWT==2.8.0 # For JSON Web Tokens

@@ -1,0 +1,105 @@
+# docker-compose.yml
+# This file defines the services needed to run the Online Learning Management System (OLMS)
+# microservices locally using Docker.
+# It sets up the three main services (Course, User, Progress), their PostgreSQL databases,
+# and a Redis cache for in-memory caching.
+# Sensitive environment variables are now loaded from service-specific .env files.
+
+version: '3.8'
+
+services:
+  # Course Service
+  course-service:
+    build:
+      context: ./course-service # Path to the course-service directory
+      dockerfile: Dockerfile
+    ports:
+      - "5001:5001" # Map host port 5001 to container port 5001
+    env_file:
+      - ./course-service/.env # Load environment variables from course-service/.env
+    depends_on:
+      - course-db # Ensure the database is up before starting the service
+      - redis
+    volumes:
+      - ./course-service:/app # Mount the local service code into the container for development
+
+  # User Service
+  user-service:
+    build:
+      context: ./user-service # Path to the user-service directory
+      dockerfile: Dockerfile
+    ports:
+      - "5002:5002" # Map host port 5002 to container port 5002
+    env_file:
+      - ./user-service/.env # Load environment variables from user-service/.env
+    depends_on:
+      - user-db # Ensure the database is up before starting the service
+      - redis
+    volumes:
+      - ./user-service:/app # Mount the local service code into the container for development
+
+  # Progress Service
+  progress-service:
+    build:
+      context: ./progress-service # Path to the progress-service directory
+      dockerfile: Dockerfile
+    ports:
+      - "5003:5003" # Map host port 5003 to container port 5003
+    env_file:
+      - ./progress-service/.env # Load environment variables from progress-service/.env
+    depends_on:
+      - progress-db # Ensure the database is up before starting the service
+      - redis
+    volumes:
+      - ./progress-service:/app # Mount the local service code into the container for development
+
+  # PostgreSQL Database for Course Service
+  course-db:
+    image: postgres:13 # Use PostgreSQL 13 image
+    environment:
+      POSTGRES_DB: course_db # Database name
+      POSTGRES_USER: user # Database user
+      POSTGRES_PASSWORD: password # Database password
+    ports:
+      - "5433:5432" # Map host port 5433 to container port 5432 to avoid conflicts
+    volumes:
+      - course_db_data:/var/lib/postgresql/data # Persist data to a named volume
+
+  # PostgreSQL Database for User Service
+  user-db:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: user_db
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5434:5432" # Map host port 5434 to container port 5432
+    volumes:
+      - user_db_data:/var/lib/postgresql/data
+
+  # PostgreSQL Database for Progress Service
+  progress-db:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: progress_db
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5435:5432" # Map host port 5435 to container port 5432
+    volumes:
+      - progress_db_data:/var/lib/postgresql/data
+
+  # Redis Cache
+  redis:
+    image: redis:6-alpine # Lightweight Redis image
+    ports:
+      - "6379:6379" # Map host port 6379 to container port 6379
+    volumes:
+      - redis_data:/data # Persist Redis data
+
+# Define named volumes for data persistence
+volumes:
+  course_db_data:
+  user_db_data:
+  progress_db_data:
+  redis_data:

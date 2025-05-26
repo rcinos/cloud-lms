@@ -1,0 +1,122 @@
+# azure-pipelines.yml
+# This pipeline defines the Continuous Integration/Continuous Deployment (CI/CD) process
+# for the Course Service. It covers building the Docker image, running tests, pushing to ACR,
+# and deploying to Azure Kubernetes Service (AKS).
+
+trigger:
+  branches:
+    include:
+      - main # Trigger the pipeline on pushes to the 'main' branch
+      - develop # Also trigger on 'develop' branch for feature development
+  paths:
+    include:
+      - course-service/* # Only trigger if changes are made in the course-service directory
+      - shared/* # Also trigger if changes are made in the shared utilities
+
+variables:
+  # Azure Container Registry (ACR) details
+  # Replace 'ACRServiceConnection' with the name of your Azure DevOps Docker Registry Service Connection
+  acrServiceConnection: 'ACRServiceConnection'
+  # Replace 'youracrname' with the actual name of your Azure Container Registry
+  acrName: 'olmsacrdev' # Example from Terraform
+  imageRepository: 'course-service' # Name of the Docker image repository in ACR
+  dockerfilePath: 'course-service/Dockerfile' # Path to the Dockerfile for the Course Service
+  tag: '$(Build.BuildId)' # Tag the Docker image with the Azure DevOps Build ID
+
+  # Azure Kubernetes Service (AKS) details
+  # Replace 'AKSServiceConnection' with the name of your Azure DevOps Kubernetes Service Connection
+  aksServiceConnection: 'AKSServiceConnection'
+  # Replace 'your-aks-cluster-name' with the actual name of your AKS cluster
+  kubernetesCluster: 'olms-aks-cluster' # Example from Terraform
+  kubernetesNamespace: 'default' # Kubernetes namespace for deployment (or your specific namespace)
+
+  # Agent pool to use for the pipeline
+  vmImageName: 'ubuntu-latest' # Use a Microsoft-hosted agent
+
+stages:
+- stage: Build
+  displayName: Build and Push Docker Image
+  jobs:
+  - job: BuildAndPush
+    displayName: Build and Push Course Service Image
+    pool:
+      vmImage: $(vmImageName) # Use the specified VM image
+
+    steps:
+    - checkout: self # Checkout the source code from the repository
+
+    - task: UsePythonVersion@0
+      displayName: 'Use Python 3.11'
+      inputs:
+        versionSpec: '3.11' # Ensure the correct Python version is used
+        addToPath: true
+
+    - script: |
+        python -m pip install --upgrade pip
+        pip install pytest pytest-cov # Install testing tools
+        pip install -r $(dockerfilePath)/../requirements.txt # Install app dependencies
+      displayName: 'Install Python Dependencies for Tests'
+      # The working directory for this script is the root of the repo,
+      # so requirements.txt is at course-service/requirements.txt relative to it.
+
+    - script: |
+        pytest $(dockerfilePath)/../tests/ --cov=$(dockerfilePath)/../app --cov-report=xml # Run tests with coverage
+      displayName: 'Run Unit Tests with Coverage'
+      # Assuming tests are in course-service/tests/ and app code in course-service/app/
+      # The coverage report will be saved as coverage.xml in the root of the repo
+
+    - task: PublishCodeCoverageResults@1
+      displayName: 'Publish Code Coverage Results'
+      inputs:
+        codeCoverageTool: 'Cobertura'
+        summaryFileLocation: '$(Build.SourcesDirectory)/coverage.xml' # Path to the coverage report
+
+    - task: Docker@2
+      displayName: 'Build and Push Image to ACR'
+      inputs:
+        containerRegistry: $(acrServiceConnection) # Use the Docker Registry Service Connection
+        repository: $(imageRepository) # Name of the image repository
+        command: 'buildAndPush' # Build and push command
+        Dockerfile: $(dockerfilePath) # Path to the Dockerfile
+        tags: |
+          $(tag) # Tag with the build ID
+          latest # Also push a 'latest' tag (be careful with 'latest' in production)
+        # Build context should be the service directory, so Dockerfile is relative to it
+        buildContext: 'course-service' # Context for Docker build is the course-service folder
+
+- stage: Deploy
+  displayName: Deploy to AKS
+  dependsOn: Build # This stage depends on the 'Build' stage completing successfully
+  condition: succeeded() # Only run if the 'Build' stage succeeded
+
+  jobs:
+  - deployment: DeployCourseService
+    displayName: Deploy Course Service to Kubernetes
+    environment: 'Dev' # Define the environment (e.g., 'Dev', 'Staging', 'Prod')
+    pool:
+      vmImage: $(vmImageName)
+
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: KubernetesManifest@1
+            displayName: 'Deploy Course Service to AKS'
+            inputs:
+              action: 'deploy'
+              kubernetesServiceConnection: $(aksServiceConnection) # Use the Kubernetes Service Connection
+              namespace: $(kubernetesNamespace) # Target Kubernetes namespace
+              # Path to your Kubernetes deployment manifest for the Course Service
+              # This file needs to exist in your repo, e.g., in infrastructure/kubernetes/
+              manifests: |
+                $(Build.SourcesDirectory)/infrastructure/kubernetes/course-service-deployment.yaml
+              # Override the image in the manifest with the one just built and pushed
+              containers: |
+                $(acrName).azurecr.io/$(imageRepository):$(tag) # Use the specific tagged image
+
+          # Optional: Add tasks for post-deployment smoke tests or health checks
+          - script: |
+              echo "Running post-deployment smoke tests for Course Service..."
+              # Example: curl http://<your-aks-ingress-ip>/course-service/health
+              # In a real scenario, you'd use a more robust testing framework.
+            displayName: 'Run Post-Deployment Smoke Tests'
