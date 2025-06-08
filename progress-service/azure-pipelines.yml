@@ -8,16 +8,16 @@ trigger:
 
 variables:
   # Azure Resource Manager connection created during pipeline creation
-  azureServiceConnectionId: 'dbff4f0b-90a2-445d-8614-87bd7a4edf8c'
+  azureServiceConnectionId: 'ac957e44-ed6b-484d-990b-b7417f392e92'
 
   # Web app name
-  webAppName: 'course-service'
+  webAppName: 'progress-service'
 
   # Agent VM image name
   vmImageName: 'ubuntu-latest'
 
   # Environment name
-  environmentName: 'course-service'
+  environmentName: 'progress-service'
 
   # Project root folder. Point to the folder containing manage.py file.
   projectRoot: $(System.DefaultWorkingDirectory)
@@ -78,7 +78,6 @@ stages:
         source antenv/bin/activate
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        pip install -r requirements-test.txt
       workingDirectory: $(projectRoot)
       displayName: "Install test requirements"
 
@@ -108,7 +107,7 @@ stages:
             displayName: 'Use Python version'
 
           - task: AzureWebApp@1
-            displayName: 'Deploy Azure Web App : course-service'
+            displayName: 'Deploy Azure Web App : progress-service'
             inputs:
               azureSubscription: $(azureServiceConnectionId)
               appName: $(webAppName)

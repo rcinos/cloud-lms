@@ -1,0 +1,30 @@
+# user-service/requirements-test.txt
+# Test dependencies for the User Service
+
+# Testing framework
+pytest>=7.0.0
+pytest-flask>=1.2.0
+
+# Test utilities
+pytest-mock>=3.6.1
+pytest-cov>=4.0.0
+pytest-timeout>=2.1.0
+
+# For mocking HTTP requests in tests
+responses>=0.20.0
+
+# For test data generation
+factory-boy>=3.2.1
+faker>=15.0.0
+
+# Additional testing utilities
+freezegun>=1.2.2  # For time-based testing
+pytest-xdist>=2.5.0  # For parallel test execution
+
+# Dependencies from shared modules and main app
+cryptography>=3.4.8  # For encryption module
+azure-storage-blob>=12.8.0  # For logging config
+azure-servicebus>=7.6.0  # For message queue
+structlog>=21.1.0  # For logging
+bcrypt>=3.2.0  # For password hashing
+PyJWT>=2.4.0  # For JWT tokens

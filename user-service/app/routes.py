@@ -9,14 +9,13 @@ from app.services import UserService, AuthService  # Import service logic
 from shared.message_queue import publish_message  # Utility for publishing messages
 from sqlalchemy import text
 from datetime import datetime
-from shared.message_queue import publish_message
 from shared.encryption import encrypt_data  # Utility for encrypting data (for messages)
 import json  # For JSON serialization
+from werkzeug.exceptions import BadRequest # Import BadRequest for JSON parsing errors
 
 bp = Blueprint('main', __name__)  # Create a Blueprint for routes
 user_service = UserService()  # Instantiate user service logic
 auth_service = AuthService()  # Instantiate authentication service logic
-
 
 
 @bp.route('/ping', methods=['GET'])
@@ -146,18 +145,23 @@ def register():
         bio (str, optional): User's biography.
     Returns: A JSON response with the newly created user's details.
     """
+    data = None # Initialize data to None to prevent UnboundLocalError
     try:
         data = request.get_json()
         if not data:
+            logger.warning("Registration failed: No JSON data provided.")
             return jsonify(
                 {'error': 'Invalid JSON data', 'code': 'INVALID_JSON', 'timestamp': datetime.utcnow().isoformat()}), 400
 
         required_fields = ['email', 'password', 'user_type']
         if not all(field in data for field in required_fields):
+            missing_fields = [field for field in required_fields if field not in data]
+            logger.warning("Registration failed: Missing required fields.", missing_fields=missing_fields)
             return jsonify({'error': 'Missing required fields', 'code': 'MISSING_FIELDS',
-                            'timestamp': datetime.utcnow().isoformat()}), 400
+                            'details': missing_fields, 'timestamp': datetime.utcnow().isoformat()}), 400
 
         if data['user_type'] not in ['student', 'instructor']:
+            logger.warning("Registration failed: Invalid user type.", user_type=data['user_type'])
             return jsonify({'error': 'Invalid user type', 'code': 'INVALID_USER_TYPE',
                             'timestamp': datetime.utcnow().isoformat()}), 400
 
@@ -181,18 +185,24 @@ def register():
             'email_encrypted': encrypt_data(event_data['email']).hex()
         }
 
-        # Publish the encrypted event to the 'user-registered-events' queue
-        publish_message('user-registered-events', json.dumps(encrypted_event))
+        publish_message('course-service-incoming-events', json.dumps(encrypted_event))
 
         logger.info("User registered and event published", user_id=user.id, user_type=user.user_type)
         return jsonify(user.to_dict()), 201
 
+    except BadRequest as e:
+        # This catches errors from request.get_json() if the payload is not valid JSON
+        logger.warning("Registration failed: Malformed JSON payload.", error=str(e))
+        return jsonify({'error': f'Malformed JSON: {e.description}', 'code': 'INVALID_JSON_FORMAT',
+                        'timestamp': datetime.utcnow().isoformat()}), 400
     except ValueError as e:
-        logger.warning("User registration failed due to invalid input", error=str(e))
+        # This catches the ValueError raised by UserService.create_user for duplicate emails
+        logger.warning("User registration failed due to invalid input.", error=str(e), request_data=data if data else 'N/A')
         return jsonify(
             {'error': str(e), 'code': 'REGISTRATION_VALIDATION_ERROR', 'timestamp': datetime.utcnow().isoformat()}), 400
     except Exception as e:
-        logger.error("Error registering user", error=str(e), request_data=data)
+        # Catch any other unexpected errors
+        logger.error("Error registering user.", error=str(e), request_data=data if data else 'N/A')
         return jsonify({'error': 'Internal server error', 'code': 'REGISTRATION_ERROR',
                         'timestamp': datetime.utcnow().isoformat()}), 500
 
@@ -206,28 +216,41 @@ def login():
         password (str): User's password.
     Returns: A JSON response with a JWT token upon successful authentication.
     """
+    data = None # Initialize data to None to prevent UnboundLocalError
     try:
         data = request.get_json()
         if not data:
+            logger.warning("Login failed: No JSON data provided.")
             return jsonify(
                 {'error': 'Invalid JSON data', 'code': 'INVALID_JSON', 'timestamp': datetime.utcnow().isoformat()}), 400
 
-        if not data.get('email') or not data.get('password'):
+        email = data.get('email')
+        password = data.get('password')
+
+        if not email or not password:
+            logger.warning("Login failed: Email or password missing.")
             return jsonify({'error': 'Email and password required', 'code': 'MISSING_CREDENTIALS',
                             'timestamp': datetime.utcnow().isoformat()}), 400
 
-        token = auth_service.authenticate_user(data['email'], data['password'])
+        token = auth_service.authenticate_user(email, password)
 
         if not token:
-            logger.warning("Login failed: Invalid credentials for email", email=data.get('email'))
+            logger.warning("Login failed: Invalid credentials for email.", email=email)
             return jsonify({'error': 'Invalid credentials', 'code': 'INVALID_CREDENTIALS',
                             'timestamp': datetime.utcnow().isoformat()}), 401
 
-        logger.info("User logged in successfully", email=data['email'])
+        logger.info("User logged in successfully.", email=email)
         return jsonify({'token': token}), 200
 
+    except BadRequest as e:
+        # This catches errors from request.get_json() if the payload is not valid JSON
+        logger.warning("Login failed: Malformed JSON payload.", error=str(e))
+        return jsonify({'error': f'Malformed JSON: {e.description}', 'code': 'INVALID_JSON_FORMAT',
+                        'timestamp': datetime.utcnow().isoformat()}), 400
     except Exception as e:
-        logger.error("Error during login process", error=str(e), email=data.get('email'))
+        # Catch any other unexpected errors
+        # Use a check for 'email' in locals() to prevent UnboundLocalError if data parsing failed before email was extracted
+        logger.error("Error during login process.", error=str(e), email=email if 'email' in locals() else 'N/A')
         return jsonify(
             {'error': 'Internal server error', 'code': 'LOGIN_ERROR', 'timestamp': datetime.utcnow().isoformat()}), 500
 
@@ -241,16 +264,20 @@ def create_enrollment():
         course_id (int): ID of the course to enroll in.
     Returns: A JSON response with the newly created enrollment details.
     """
+    data = None # Initialize data to None
     try:
         data = request.get_json()
         if not data:
+            logger.warning("Enrollment failed: No JSON data provided.")
             return jsonify(
                 {'error': 'Invalid JSON data', 'code': 'INVALID_JSON', 'timestamp': datetime.utcnow().isoformat()}), 400
 
         required_fields = ['user_id', 'course_id']
         if not all(field in data for field in required_fields):
+            missing_fields = [field for field in required_fields if field not in data]
+            logger.warning("Enrollment failed: Missing required fields.", missing_fields=missing_fields)
             return jsonify({'error': 'Missing required fields', 'code': 'MISSING_FIELDS',
-                            'timestamp': datetime.utcnow().isoformat()}), 400
+                            'details': missing_fields, 'timestamp': datetime.utcnow().isoformat()}), 400
 
         enrollment = user_service.create_enrollment(data)
 
@@ -262,18 +289,22 @@ def create_enrollment():
             'course_id': enrollment.course_id
         }
         # Publish to 'user-enrolled-events' queue (as defined in Service Bus setup)
-        publish_message('user-enrolled-events', json.dumps(event_data))
+        publish_message('progress-service-incoming-events', json.dumps(event_data))
 
         logger.info("User enrolled and event published", enrollment_id=enrollment.id, user_id=enrollment.user_id,
                     course_id=enrollment.course_id)
         return jsonify(enrollment.to_dict()), 201
 
+    except BadRequest as e:
+        logger.warning("Enrollment failed: Malformed JSON payload.", error=str(e))
+        return jsonify({'error': f'Malformed JSON: {e.description}', 'code': 'INVALID_JSON_FORMAT',
+                        'timestamp': datetime.utcnow().isoformat()}), 400
     except ValueError as e:
-        logger.warning("Enrollment failed due to invalid input", error=str(e))
+        logger.warning("Enrollment failed due to invalid input.", error=str(e), request_data=data if data else 'N/A')
         return jsonify(
             {'error': str(e), 'code': 'ENROLLMENT_VALIDATION_ERROR', 'timestamp': datetime.utcnow().isoformat()}), 400
     except Exception as e:
-        logger.error("Error creating enrollment", error=str(e), request_data=data)
+        logger.error("Error creating enrollment.", error=str(e), request_data=data if data else 'N/A')
         return jsonify({'error': 'Internal server error', 'code': 'ENROLLMENT_ERROR',
                         'timestamp': datetime.utcnow().isoformat()}), 500
 
@@ -290,16 +321,16 @@ def get_user_enrollments(user_id: int):
     try:
         user = User.query.get(user_id)
         if not user:
-            logger.warning("User not found for enrollments query", user_id=user_id)
+            logger.warning("User not found for enrollments query.", user_id=user_id)
             return jsonify(
                 {'error': 'User not found', 'code': 'USER_NOT_FOUND', 'timestamp': datetime.utcnow().isoformat()}), 404
 
         enrollments = Enrollment.query.filter_by(user_id=user_id).all()
 
-        logger.info("Retrieved user enrollments", user_id=user_id, count=len(enrollments))
+        logger.info("Retrieved user enrollments.", user_id=user_id, count=len(enrollments))
         return jsonify([enrollment.to_dict() for enrollment in enrollments]), 200
     except Exception as e:
-        logger.error("Error retrieving user enrollments", user_id=user_id, error=str(e))
+        logger.error("Error retrieving user enrollments.", user_id=user_id, error=str(e))
         return jsonify({'error': 'Internal server error', 'code': 'ENROLLMENTS_RETRIEVAL_ERROR',
                         'timestamp': datetime.utcnow().isoformat()}), 500
 
@@ -327,11 +358,23 @@ def health_check():
         test_value = "health_check_redis_value"
         cache.set(test_key, test_value, timeout=10) # Set a value with a short expiration
         retrieved_value = cache.get(test_key) # Retrieve the value
-        if retrieved_value and retrieved_value.decode('utf-8') == test_value: # Decode if bytes
-            results['redis_cache'] = {'status': 'OK', 'message': 'Successfully connected to Azure Cache for Redis.'}
+        # Ensure retrieved_value is not None and matches after decoding if it's bytes
+        if retrieved_value:
+            # Handle both string and bytes
+            if isinstance(retrieved_value, bytes):
+                retrieved_str = retrieved_value.decode('utf-8')
+            else:
+                retrieved_str = str(retrieved_value)
+
+            if retrieved_str == test_value:
+                results['redis_cache'] = {'status': 'OK', 'message': 'Successfully connected to Azure Cache for Redis.'}
+            else:
+                results['redis_cache'] = {'status': 'ERROR',
+                                          'message': f'Redis set/get failed. Retrieved: {retrieved_str}'}
         else:
-            results['redis_cache'] = {'status': 'ERROR', 'message': f'Redis set/get failed. Retrieved: {retrieved_value}'}
-        cache.delete(test_key) # Clean up the test key
+            results['redis_cache'] = {'status': 'ERROR', 'message': 'Redis get returned None'}
+
+        cache.delete(test_key)  # Clean up the test key
     except Exception as e:
         results['redis_cache'] = {'status': 'ERROR', 'message': f'Redis connection failed: {str(e)}'}
         logger.error("Health check: Redis connection failed", error=str(e)) # Log the error
@@ -375,3 +418,4 @@ def health_check():
     # Return JSON response with appropriate HTTP status code
     status_code = 200 if overall_status == "OK" else 500
     return jsonify(results), status_code
+

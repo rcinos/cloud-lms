@@ -1,4 +1,4 @@
-# progress-service/app.py
+# progress-service/wsgi.py
 # This is the main entry point for the Progress Service Flask application.
 # It initializes the Flask app and runs it.
 

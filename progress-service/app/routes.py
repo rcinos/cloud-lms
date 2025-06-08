@@ -1,6 +1,5 @@
 # progress-service/app/routes.py
-# This file defines the API endpoints for the Progress Service.
-# It handles incoming HTTP requests, interacts with services, and returns JSON responses.
+# Fixed version with proper error handling for malformed JSON
 
 from flask import Blueprint, request, jsonify, current_app
 from app import db, cache, logger  # Import initialized extensions and logger
@@ -12,6 +11,7 @@ from sqlalchemy import text  # For database health check
 from datetime import datetime  # For timestamps in health check and responses
 import json  # For JSON serialization of messages
 import requests  # For inter-service communication (e.g., fetching user/course details)
+from werkzeug.exceptions import BadRequest  # Import BadRequest for JSON parsing errors
 
 bp = Blueprint('main', __name__)  # Create a Blueprint for routes
 progress_service = ProgressService()  # Instantiate progress service logic
@@ -89,18 +89,28 @@ def api_health_check():
         test_value = "health_check_redis_value_progress"
         cache.set(test_key, test_value, timeout=10)  # Set a value with a short expiration
         retrieved_value = cache.get(test_key)  # Retrieve the value
-        if retrieved_value and retrieved_value.decode('utf-8') == test_value:  # Decode if bytes
-            results['redis_cache'] = {'status': 'OK', 'message': 'Successfully connected to Azure Cache for Redis.'}
+        if retrieved_value:
+            # Handle both string and bytes
+            if isinstance(retrieved_value, bytes):
+                retrieved_str = retrieved_value.decode('utf-8')
+            else:
+                retrieved_str = str(retrieved_value)
+
+            if retrieved_str == test_value:
+                results['redis_cache'] = {'status': 'OK', 'message': 'Successfully connected to Azure Cache for Redis.'}
+            else:
+                results['redis_cache'] = {'status': 'ERROR',
+                                          'message': f'Redis set/get failed. Retrieved: {retrieved_str}'}
         else:
-            results['redis_cache'] = {'status': 'ERROR',
-                                      'message': f'Redis set/get failed. Retrieved: {retrieved_value}'}
+            results['redis_cache'] = {'status': 'ERROR', 'message': 'Redis get returned None'}
+
         cache.delete(test_key)  # Clean up the test key
     except Exception as e:
         results['redis_cache'] = {'status': 'ERROR', 'message': f'Redis connection failed: {str(e)}'}
         logger.error("Health check: Redis connection failed", error=str(e))
 
     # 3. Azure Service Bus Check (Sending a test message)
-    test_queue_name = "health-check-queue-progress"  # Ensure this queue exists in your Service Bus Namespace.
+    test_queue_name = "health-check-queue"  # Use shared health check queue
     test_message_content = {
         "source": "progress-service-health-check",
         "message": "Test message from health check endpoint",
@@ -200,6 +210,7 @@ def get_user_course_progress(current_user_id: int, user_id: int, course_id: int)
 @token_required
 def update_or_create_progress(current_user_id: int):
     """Update or create progress record."""
+    data = None  # Initialize data to None to prevent UnboundLocalError
     try:
         data = request.get_json()
         if not data:
@@ -229,18 +240,24 @@ def update_or_create_progress(current_user_id: int):
             'completion_percentage': progress.completion_percentage,
             'total_time_spent': progress.total_time_spent
         }
-        publish_message('progress-events', json.dumps(event_data))  # Publish to 'progress-events' queue
+        publish_message('user-service-incoming-events', json.dumps(event_data))
+        publish_message('course-service-incoming-events', json.dumps(event_data))
 
         logger.info("Progress record updated/created and event published", progress_id=progress.id,
                     user_id=progress.user_id, course_id=progress.course_id)
         return jsonify(progress.to_dict()), 201
 
+    except BadRequest as e:
+        # This catches errors from request.get_json() if the payload is not valid JSON
+        logger.warning("Progress update failed: Malformed JSON payload.", error=str(e))
+        return jsonify({'error': f'Malformed JSON: {e.description}', 'code': 'INVALID_JSON_FORMAT',
+                        'timestamp': datetime.utcnow().isoformat()}), 400
     except ValueError as e:
-        logger.warning("Progress update/create failed due to invalid input", error=str(e))
+        logger.warning("Progress update/create failed due to invalid input", error=str(e), request_data=data if data else 'N/A')
         return jsonify(
             {'error': str(e), 'code': 'PROGRESS_VALIDATION_ERROR', 'timestamp': datetime.utcnow().isoformat()}), 400
     except Exception as e:
-        logger.error("Error updating/creating progress", error=str(e), request_data=data)
+        logger.error("Error updating/creating progress", error=str(e), request_data=data if data else 'N/A')
         return jsonify({'error': 'Internal server error', 'code': 'PROGRESS_UPDATE_ERROR',
                         'timestamp': datetime.utcnow().isoformat()}), 500
 
@@ -249,6 +266,7 @@ def update_or_create_progress(current_user_id: int):
 @token_required
 def record_assessment_result(current_user_id: int):
     """Record assessment result."""
+    data = None  # Initialize data to None to prevent UnboundLocalError
     try:
         data = request.get_json()
         if not data:
@@ -279,18 +297,24 @@ def record_assessment_result(current_user_id: int):
             'percentage_score': result.percentage_score,
             'completed_at': result.completed_at.isoformat() + "Z"
         }
-        publish_message('assessment-events', json.dumps(event_data))  # Publish to 'assessment-events' queue
+        publish_message('user-service-incoming-events', json.dumps(event_data))
+        publish_message('course-service-incoming-events', json.dumps(event_data))
 
         logger.info("Assessment result recorded and event published", result_id=result.id, user_id=result.user_id,
                     assessment_id=result.assessment_id)
         return jsonify(result.to_dict()), 201
 
+    except BadRequest as e:
+        # This catches errors from request.get_json() if the payload is not valid JSON
+        logger.warning("Assessment recording failed: Malformed JSON payload.", error=str(e))
+        return jsonify({'error': f'Malformed JSON: {e.description}', 'code': 'INVALID_JSON_FORMAT',
+                        'timestamp': datetime.utcnow().isoformat()}), 400
     except ValueError as e:
-        logger.warning("Assessment result recording failed due to invalid input", error=str(e))
+        logger.warning("Assessment result recording failed due to invalid input", error=str(e), request_data=data if data else 'N/A')
         return jsonify(
             {'error': str(e), 'code': 'ASSESSMENT_VALIDATION_ERROR', 'timestamp': datetime.utcnow().isoformat()}), 400
     except Exception as e:
-        logger.error("Error recording assessment result", error=str(e), request_data=data)
+        logger.error("Error recording assessment result", error=str(e), request_data=data if data else 'N/A')
         return jsonify({'error': 'Internal server error', 'code': 'ASSESSMENT_RECORD_ERROR',
                         'timestamp': datetime.utcnow().isoformat()}), 500
 
@@ -346,6 +370,7 @@ def get_course_analytics(current_user_id: int, course_id: int):
 @token_required
 def issue_completion_certificate(current_user_id: int):
     """Issue completion certificate."""
+    data = None  # Initialize data to None to prevent UnboundLocalError
     try:
         data = request.get_json()
         if not data:
@@ -368,12 +393,17 @@ def issue_completion_certificate(current_user_id: int):
                     course_id=certificate.course_id)
         return jsonify(certificate.to_dict()), 201
 
+    except BadRequest as e:
+        # This catches errors from request.get_json() if the payload is not valid JSON
+        logger.warning("Certificate issuance failed: Malformed JSON payload.", error=str(e))
+        return jsonify({'error': f'Malformed JSON: {e.description}', 'code': 'INVALID_JSON_FORMAT',
+                        'timestamp': datetime.utcnow().isoformat()}), 400
     except ValueError as e:
-        logger.warning("Certificate issuance failed due to invalid input", error=str(e))
+        logger.warning("Certificate issuance failed due to invalid input", error=str(e), request_data=data if data else 'N/A')
         return jsonify(
             {'error': str(e), 'code': 'CERTIFICATE_VALIDATION_ERROR', 'timestamp': datetime.utcnow().isoformat()}), 400
     except Exception as e:
-        logger.error("Error issuing certificate", error=str(e), request_data=data)
+        logger.error("Error issuing certificate", error=str(e), request_data=data if data else 'N/A')
         return jsonify({'error': 'Internal server error', 'code': 'CERTIFICATE_ISSUE_ERROR',
                         'timestamp': datetime.utcnow().isoformat()}), 500
 

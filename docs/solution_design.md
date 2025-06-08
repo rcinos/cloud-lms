@@ -52,7 +52,7 @@
 
 ## 3. Services Communication Diagram
 
-![img_2.png](images%2Fimg_2.png)
+![img.png](images/img.png)
 
 ## 4. Database Schema Diagram
 

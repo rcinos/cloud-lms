@@ -85,18 +85,28 @@ def api_health_check():
         test_value = "health_check_redis_value_course"
         cache.set(test_key, test_value, timeout=10)  # Set a value with a short expiration
         retrieved_value = cache.get(test_key)  # Retrieve the value
-        if retrieved_value and retrieved_value.decode('utf-8') == test_value:  # Decode if bytes
-            results['redis_cache'] = {'status': 'OK', 'message': 'Successfully connected to Azure Cache for Redis.'}
+        if retrieved_value:
+            # Handle both string and bytes
+            if isinstance(retrieved_value, bytes):
+                retrieved_str = retrieved_value.decode('utf-8')
+            else:
+                retrieved_str = str(retrieved_value)
+
+            if retrieved_str == test_value:
+                results['redis_cache'] = {'status': 'OK', 'message': 'Successfully connected to Azure Cache for Redis.'}
+            else:
+                results['redis_cache'] = {'status': 'ERROR',
+                                          'message': f'Redis set/get failed. Retrieved: {retrieved_str}'}
         else:
-            results['redis_cache'] = {'status': 'ERROR',
-                                      'message': f'Redis set/get failed. Retrieved: {retrieved_value}'}
+            results['redis_cache'] = {'status': 'ERROR', 'message': 'Redis get returned None'}
+
         cache.delete(test_key)  # Clean up the test key
     except Exception as e:
         results['redis_cache'] = {'status': 'ERROR', 'message': f'Redis connection failed: {str(e)}'}
         logger.error("Health check: Redis connection failed", error=str(e))
 
     # 3. Azure Service Bus Check (Sending a test message)
-    test_queue_name = "health-check-queue-course"  # Ensure this queue exists in your Service Bus Namespace.
+    test_queue_name = "health-check-queue"  # Use shared health check queue
     test_message_content = {
         "source": "course-service-health-check",
         "message": "Test message from health check endpoint",
@@ -180,6 +190,7 @@ def get_course(course_id: int):
 @instructor_required  # Only instructors can create courses
 def create_course(current_user_id: int):  # current_user_id is passed by instructor_required
     """Create new course (Instructor only)."""
+    data = None
     try:
         data = request.get_json()
         if not data:
@@ -224,7 +235,9 @@ def create_course(current_user_id: int):  # current_user_id is passed by instruc
             'instructor_id': course.instructor_id,
             'created_at': course.created_at.isoformat() + "Z"
         }
-        publish_message('course-events', json.dumps(event_data))  # Publish to 'course-events' queue
+
+        publish_message('user-service-incoming-events', json.dumps(event_data))
+        publish_message('progress-service-incoming-events', json.dumps(event_data))
 
         logger.info("Course created and event published", course_id=course.id, instructor_id=course.instructor_id)
         return jsonify(course.to_dict()), 201

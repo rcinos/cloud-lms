@@ -1,6 +1,5 @@
 # user-service/app/services.py
-# This file contains the business logic for the User Service,
-# abstracting database operations and external interactions.
+# Fixed version that properly handles Fernet encryption for email lookup
 
 from app import db  # Import the SQLAlchemy instance
 from app.models import User, UserProfile, Enrollment  # Import database models
@@ -51,10 +50,23 @@ class UserService:
     def get_user_by_email(self, email: str) -> User | None:
         """
         Retrieves a user by their email.
-        The email is encrypted before querying the database to match the stored format.
+        Since Fernet encryption produces different ciphertext each time,
+        we need to decrypt each user's email and compare with the search email.
         """
-        encrypted_email = encrypt_data(email)  # Encrypt the input email for lookup
-        return User.query.filter_by(email_encrypted=encrypted_email).first()
+        # Get all users and decrypt each email to find a match
+        # This is the only way to work with Fernet encryption for lookups
+        all_users = User.query.all()
+
+        for user in all_users:
+            try:
+                decrypted_email = user.get_email()
+                if decrypted_email and decrypted_email.lower() == email.lower():
+                    return user
+            except Exception:
+                # Skip users with corrupted encrypted data
+                continue
+
+        return None
 
     def create_enrollment(self, data: dict) -> Enrollment:
         """

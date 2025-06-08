@@ -19,6 +19,7 @@ gunicorn==21.2.0 # Production WSGI server
 redis==5.0.1 # Redis client for caching
 pandas==2.1.4 # For analytics calculations (as per original requirements)
 numpy==1.25.2 # For analytics calculations (as per original requirements)
+PyJWT==2.8.0 # For JSON Web Tokens
 
 # Application Insights integration
 opentelemetry-api==1.21.0
