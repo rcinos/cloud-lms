@@ -5,7 +5,7 @@ Flask==3.0.0
 Flask-SQLAlchemy==3.1.1
 Flask-Migrate==4.0.5
 Flask-Caching==2.1.0
-psycopg2-binary==2.9.9 # For PostgreSQL
+pyodbc==5.0.1 # For SQL Server
 cryptography==41.0.7 # For Fernet encryption (if used, though not directly in ProgressService models)
 python-dotenv==1.0.0 # For loading .env files locally
 azure-storage-blob==12.19.0 # For Azure Blob Storage logging
@@ -17,14 +17,4 @@ pytest-cov==4.1.0 # For test coverage
 requests==2.31.0 # For inter-service HTTP communication
 gunicorn==21.2.0 # Production WSGI server
 redis==5.0.1 # Redis client for caching
-pandas==2.1.4 # For analytics calculations (as per original requirements)
-numpy==1.25.2 # For analytics calculations (as per original requirements)
 PyJWT==2.8.0 # For JSON Web Tokens
-
-# Application Insights integration
-opentelemetry-api==1.21.0
-opentelemetry-sdk==1.21.0
-opentelemetry-instrumentation-flask==0.42b0
-opentelemetry-instrumentation-requests==0.42b0
-opentelemetry-instrumentation-sqlalchemy==0.42b0
-azure-monitor-opentelemetry-exporter==1.0.0b25
