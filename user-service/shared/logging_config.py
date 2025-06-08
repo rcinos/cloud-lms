@@ -35,7 +35,7 @@ class AzureBlobLogProcessor:
         if self.blob_service_client:
             try:
                 # Create a unique blob name (e.g., service-name/YYYY-MM-DD/HH-MM-SS-UUID.json)
-                service_name = event_dict.get('service', 'unknown-service')
+                service_name = event_dict.get('service', 'user-service')
                 log_time = datetime.utcnow()
                 blob_name = f"{service_name}/{log_time.strftime('%Y-%m-%d')}/{log_time.isoformat()}-{os.urandom(4).hex()}.json"
 

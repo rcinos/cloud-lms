@@ -154,9 +154,8 @@ def get_progress_records(current_user_id: int):
         per_page = min(request.args.get('per_page', 10, type=int), 100)
 
         # Only allow users to see their own progress records
-        progress_pagination = ProgressTracking.query.filter_by(user_id=current_user_id).paginate(page=page,
-                                                                                                 per_page=per_page,
-                                                                                                 error_out=False)
+        progress_pagination = ProgressTracking.query.filter_by(user_id=current_user_id).order_by(
+            ProgressTracking.last_accessed.desc()).paginate(page=page, per_page=per_page, error_out=False)
 
         result = {
             'progress': [p.to_dict() for p in progress_pagination.items],

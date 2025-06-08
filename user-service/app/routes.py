@@ -79,7 +79,8 @@ def get_users():
             query = query.filter_by(user_type=user_type)
 
         # Paginate the query results
-        users_pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+        users_pagination = query.order_by(User.created_at.desc()).paginate(page=page, per_page=per_page,
+                                                                           error_out=False)
 
         result = {
             'users': [user.to_dict() for user in users_pagination.items],

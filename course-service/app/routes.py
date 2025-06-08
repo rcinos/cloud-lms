@@ -148,7 +148,8 @@ def get_courses():
         page = request.args.get('page', 1, type=int)
         per_page = min(request.args.get('per_page', 10, type=int), 100)
 
-        courses_pagination = Course.query.paginate(page=page, per_page=per_page, error_out=False)
+        courses_pagination = Course.query.order_by(Course.created_at.desc()).paginate(page=page, per_page=per_page,
+                                                                                      error_out=False)
 
         result = {
             'courses': [course.to_dict() for course in courses_pagination.items],
@@ -185,7 +186,6 @@ def get_course(course_id: int):
         return jsonify({'error': 'Internal server error', 'code': 'COURSE_RETRIEVAL_ERROR',
                         'timestamp': datetime.utcnow().isoformat()}), 500
 
-
 @bp.route('/courses', methods=['POST'])
 @instructor_required  # Only instructors can create courses
 def create_course(current_user_id: int):  # current_user_id is passed by instructor_required
@@ -204,26 +204,6 @@ def create_course(current_user_id: int):  # current_user_id is passed by instruc
 
         # The instructor_id from the JWT token is used
         data['instructor_id'] = current_user_id
-
-        # Optional: Validate instructor ID against User Service (inter-service communication)
-        user_service_url = current_app.config.get('USER_SERVICE_URL')
-        if user_service_url:
-            try:
-                # Assuming /users/{id} endpoint exists and returns user_type
-                response = requests.get(f"{user_service_url}/users/{current_user_id}")
-                response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
-                user_data = response.json()
-                if user_data.get('user_type') != 'instructor':
-                    return jsonify({'error': 'User is not an instructor', 'code': 'NOT_INSTRUCTOR',
-                                    'timestamp': datetime.utcnow().isoformat()}), 403
-            except requests.exceptions.RequestException as req_e:
-                logger.error("Failed to validate instructor with User Service", instructor_id=current_user_id,
-                             error=str(req_e))
-                return jsonify(
-                    {'error': 'Failed to validate instructor with User Service', 'code': 'USER_SERVICE_ERROR',
-                     'timestamp': datetime.utcnow().isoformat()}), 500
-        else:
-            logger.warning("USER_SERVICE_URL not configured, skipping instructor validation via API.")
 
         course = course_service.create_course(data)
 

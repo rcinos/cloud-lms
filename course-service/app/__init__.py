@@ -14,7 +14,7 @@ from shared.logging_config import configure_logging  # Custom logging setup
 db = SQLAlchemy()  # Database ORM instance
 migrate = Migrate()  # Database migration instance
 cache = Cache()  # Caching instance
-logger = structlog.get_logger()  # Global logger instance
+logger = structlog.get_logger()
 
 
 def create_app():

@@ -20,7 +20,7 @@ class Config:
     # --- JWT Configuration ---
     # Secret key for signing and verifying JSON Web Tokens.
     # This should ideally be the same as the JWT_SECRET used by the User Service for validation.
-    JWT_SECRET = os.environ.get('JWT_SECRET', 'jwt-secret-key')
+    JWT_SECRET = os.environ.get('JWT_SECRET', None)
     # Expiration time for JWT tokens in hours (used for validation, not generation here).
     JWT_EXPIRATION_HOURS = int(os.environ.get('JWT_EXPIRATION_HOURS', 24))
 
